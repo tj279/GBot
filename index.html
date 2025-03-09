@@ -1,369 +1,194 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gesture Controlled Car</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    }
-    nav {
-      background: #2c3e50;
-      padding: 1rem;
-      position: fixed;
-      width: 100%;
-      top: 0;
-      z-index: 1000;
-    }
-    nav button {
-      background: #3498db;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      margin: 0 10px;
-      border-radius: 5px;
-      cursor: pointer;
-      transition: background 0.3s;
-    }
-    nav button:hover {
-      background: #2980b9;
-    }
-    .page {
-      display: none;
-      padding: 80px 20px 20px;
-      min-height: 100vh;
-    }
-    .active-page {
-      display: block;
-    }
-    #intro {
-      max-width: 800px;
-      margin: 0 auto;
-      text-align: center;
-    }
-    .gesture-list {
-      list-style: none;
-      margin: 2rem 0;
-    }
-    .gesture-list li {
-      margin: 1.5rem 0;
-      padding: 1rem;
-      background: #f8f9fa;
-      border-radius: 10px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-    #demo {
-      text-align: center;
-    }
-    .video-container {
-      position: relative;
-      width: 100%;
-      max-width: 800px;
-      margin: 20px auto;
-    }
-    #webcam {
-      display: none;
-    }
-    #annotated {
-      width: 100%;
-      height: 600px;
-      border-radius: 10px;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-      background: #000;
-      object-fit: contain;
-    }
-    .status-overlay {
-      position: absolute;
-      top: 20px;
-      left: 20px;
-      background: rgba(0,0,0,0.7);
-      color: white;
-      padding: 10px 20px;
-      border-radius: 5px;
-      z-index: 100;
-    }
-    #status {
-      font-weight: bold;
-      margin-bottom: 5px;
-    }
-    #command {
-      font-weight: bold;
-      font-size: 1.2em;
-    }
-    .fps-display {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      background: rgba(0,0,0,0.7);
-      color: white;
-      padding: 5px 10px;
-      border-radius: 5px;
-      font-size: 0.8em;
-    }
-    .performance-switches {
-      margin: 10px 0;
-      display: flex;
-      justify-content: center;
-      gap: 10px;
-    }
-    .performance-switches button {
-      background: #3498db;
-      color: white;
-      border: none;
-      padding: 5px 10px;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    .performance-switches button.active {
-      background: #27ae60;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Controlled Car</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        nav {
+            background: #2c3e50;
+            padding: 1rem;
+            position: fixed;
+            width: 100%;
+            top: 0;
+            z-index: 1000;
+        }
+
+        nav button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 0 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        nav button:hover {
+            background: #2980b9;
+        }
+
+        .page {
+            display: none;
+            padding: 80px 20px 20px;
+            min-height: 100vh;
+        }
+
+        .active-page {
+            display: block;
+        }
+
+        #intro {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .gesture-list {
+            list-style: none;
+            margin: 2rem 0;
+        }
+
+        .gesture-list li {
+            margin: 1.5rem 0;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        #demo {
+            text-align: center;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin: 20px auto;
+        }
+
+        #webcam {
+            width: 100%;
+            height: 600px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transform: scaleX(-1); /* Mirror video */
+        }
+
+        .status-overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+        }
+    </style>
 </head>
 <body>
-  <nav>
-    <button onclick="showPage('intro')">Instructions</button>
-    <button onclick="showPage('demo')">Live Demo</button>
-  </nav>
-  
-  <!-- Intro Page -->
-  <div id="intro" class="page active-page">
-    <h1>Gesture Controlled Car 🚗</h1>
-    <p>Control the car using these hand gestures:</p>
-    <ul class="gesture-list">
-      <li>👉 Point Left → Turn Left</li>
-      <li>👉 Point Right → Turn Right</li>
-      <li>👆 Point Up → Move Forward</li>
-      <li>👇 Point Down → Move Backward</li>
-      <li>✊ Closed Fist → Stop</li>
-      <li>✌️ Victory Sign → Zig-Zag Pattern</li>
-      <li>👌 OK Sign → Start/Stop Control</li>
-    </ul>
-  </div>
-  
-  <!-- Demo Page -->
-  <div id="demo" class="page">
-    <h2>Live Gesture Control</h2>
-    <div class="performance-switches">
-      <button id="performance-mode" onclick="togglePerformanceMode()">High Performance Mode</button>
-      <button id="low-res-mode" onclick="toggleResolutionMode()">Low Resolution Mode</button>
+    <nav>
+        <button onclick="showPage('intro')">Instructions</button>
+        <button onclick="showPage('demo')">Live Demo</button>
+    </nav>
+
+    <!-- Intro Page -->
+    <div id="intro" class="page active-page">
+        <h1>Gesture Controlled Car 🚗</h1>
+        <p>Control the car using these hand gestures:</p>
+        
+        <ul class="gesture-list">
+            <li>👉 Point Left → Turn Left</li>
+            <li>👉 Point Right → Turn Right</li>
+            <li>👆 Point Up → Move Forward</li>
+            <li>👇 Point Down → Move Backward</li>
+            <li>✊ Closed Fist → Stop</li>
+            <li>✌️ Victory Sign → Zig-Zag Pattern</li>
+            <li>👌 OK Sign → Start/Stop Control</li>
+        </ul>
     </div>
-    <div class="video-container">
-      <video id="webcam" autoplay></video>
-      <img id="annotated" src="" alt="Processing your gestures...">
-      <div class="status-overlay">
-        <div id="status">Status: Loading...</div>
-        <div id="command">Command: None</div>
-      </div>
-      <div class="fps-display" id="fps">FPS: 0</div>
+
+    <!-- Demo Page -->
+    <div id="demo" class="page">
+        <h2>Live Gesture Control</h2>
+        <div class="video-container">
+            <video id="webcam" autoplay></video>
+            <div class="status-overlay">
+                <div id="status">Status: Loading...</div>
+                <div id="command">Command: None</div>
+            </div>
+        </div>
+        <p>Allow camera access when prompted</p>
     </div>
-    <p>Allow camera access when prompted</p>
-  </div>
-  
-  <script>
-    // Performance control variables
-    let highPerformanceMode = false;
-    let lowResolutionMode = false;
-    let processingInterval = 100; // ms between frames (10 fps default)
-    let frameQuality = 0.6; // Default JPEG quality
-    let videoWidth = 640;
-    let videoHeight = 480;
-    
-    // FPS tracking
-    let frameCount = 0;
-    let lastFpsTime = 0;
-    let fpsUpdateInterval = 1000; // Update FPS every second
-    
-    // Tracking variables
-    let processingInProgress = false;
-    let cameraStarted = false;
-    let lastProcessedTime = 0;
-    let consecutiveErrorCount = 0;
-    
-    // Page elements
-    const video = document.getElementById('webcam');
-    const statusDiv = document.getElementById('status');
-    const commandDiv = document.getElementById('command');
-    const annotatedImg = document.getElementById('annotated');
-    const fpsDisplay = document.getElementById('fps');
-    const performanceBtn = document.getElementById('performance-mode');
-    const resolutionBtn = document.getElementById('low-res-mode');
-    
-    // Update with your ngrok URL
-    const API_URL = 'https://57e1-2401-4900-5986-e1de-c9b1-f953-2bc4-1cb8.ngrok-free.app';
-    
-    // Page navigation
-    function showPage(pageId) {
-      document.querySelectorAll('.page').forEach(page => {
-        page.classList.remove('active-page');
-      });
-      document.getElementById(pageId).classList.add('active-page');
-      
-      if (pageId === 'demo' && !cameraStarted) {
-        startCamera();
-      }
-    }
-    
-    // Performance modes
-    function togglePerformanceMode() {
-      highPerformanceMode = !highPerformanceMode;
-      performanceBtn.classList.toggle('active');
-      
-      if (highPerformanceMode) {
-        processingInterval = 50; // 20 fps target
-        frameQuality = 0.4; // Lower quality
-      } else {
-        processingInterval = 100; // 10 fps target
-        frameQuality = 0.6; // Higher quality
-      }
-    }
-    
-    function toggleResolutionMode() {
-      lowResolutionMode = !lowResolutionMode;
-      resolutionBtn.classList.toggle('active');
-      
-      if (lowResolutionMode) {
-        videoWidth = 320;
-        videoHeight = 240;
-      } else {
-        videoWidth = 640;
-        videoHeight = 480;
-      }
-      
-      // Update canvas size
-      if (window.canvas) {
-        canvas.width = videoWidth;
-        canvas.height = videoHeight;
-      }
-    }
-    
-    // Camera initialization
-    function startCamera() {
-      if (cameraStarted) return;
-      
-      navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: videoWidth },
-          height: { ideal: videoHeight },
-          frameRate: { ideal: 30 }
+
+    <script>
+        // Page navigation
+        function showPage(pageId) {
+            document.querySelectorAll('.page').forEach(page => {
+                page.classList.remove('active-page');
+            });
+            document.getElementById(pageId).classList.add('active-page');
         }
-      })
-      .then(stream => {
-        video.srcObject = stream;
-        statusDiv.textContent = "Status: Camera connected";
-        cameraStarted = true;
-        startProcessing();
-      })
-      .catch(err => {
-        statusDiv.textContent = "Error accessing camera: " + err;
-        console.error("Camera error:", err);
-      });
-    }
-    
-    // FPS calculation
-    function updateFPS() {
-      frameCount++;
-      
-      const now = performance.now();
-      const elapsed = now - lastFpsTime;
-      
-      if (elapsed >= fpsUpdateInterval) {
-        const fps = Math.round((frameCount / elapsed) * 1000);
-        fpsDisplay.textContent = `FPS: ${fps}`;
-        frameCount = 0;
-        lastFpsTime = now;
-        
-        // Auto-adjust processing interval based on performance
-        if (highPerformanceMode && fps < 10) {
-          processingInterval = Math.min(processingInterval + 10, 200);
-        } else if (highPerformanceMode && fps > 20) {
-          processingInterval = Math.max(processingInterval - 5, 30);
+
+        // Webcam access and processing
+        const video = document.getElementById('webcam');
+        const statusDiv = document.getElementById('status');
+        const commandDiv = document.getElementById('command');
+        const API_URL = 'https://57e1-2401-4900-5986-e1de-c9b1-f953-2bc4-1cb8.ngrok-free.app'; // Replace with your ngrok URL
+
+        // 1. Access user's webcam
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                statusDiv.textContent = "Status: Camera connected";
+                startProcessing();
+            })
+            .catch(err => {
+                statusDiv.textContent = "Error accessing camera: " + err;
+            });
+
+        // 2. Frame processing loop
+        async function startProcessing() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            const ctx = canvas.getContext('2d');
+            
+            while (true) {
+                // Capture frame
+                ctx.drawImage(video, 0, 0, 640, 480);
+                const frame = canvas.toDataURL('image/jpeg', 0.7);
+                
+                try {
+                    // Send to processing endpoint
+                    const response = await fetch(API_URL + '/process', {
+                        method: 'POST',
+                        body: JSON.stringify({ image: frame }),
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    
+                    // Update status
+                    const result = await response.json();
+                    commandDiv.textContent = `Command: ${result.command}`;
+                    statusDiv.textContent = `Status: ${result.status}`;
+                } catch (error) {
+                    console.error('Processing error:', error);
+                }
+                
+                // Throttle to 10fps
+                await new Promise(r => setTimeout(r, 100));
+            }
         }
-      }
-    }
-    
-    // Create canvas once
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    canvas.width = videoWidth;
-    canvas.height = videoHeight;
-    
-    // Process single frame with throttling
-    async function processFrame() {
-      if (!cameraStarted || processingInProgress) return;
-      
-      const now = performance.now();
-      const timeSinceLastProcess = now - lastProcessedTime;
-      
-      // Throttle processing
-      if (timeSinceLastProcess < processingInterval) {
-        return;
-      }
-      
-      try {
-        processingInProgress = true;
-        lastProcessedTime = now;
-        
-        // Draw video frame to canvas & convert to data URL
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const frame = canvas.toDataURL('image/jpeg', frameQuality);
-        
-        // Send to backend
-        const response = await fetch(`${API_URL}/process`, {
-          method: 'POST',
-          body: JSON.stringify({ image: frame }),
-          headers: { 'Content-Type': 'application/json' }
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Server error: ${response.status}`);
-        }
-        
-        const result = await response.json();
-        
-        // Update UI with results
-        commandDiv.textContent = `Command: ${result.command || 'None'}`;
-        statusDiv.textContent = `Status: ${result.status}`;
-        
-        if (result.annotated_image) {
-          annotatedImg.src = result.annotated_image;
-        }
-        
-        // Reset error counter on success
-        consecutiveErrorCount = 0;
-        
-        // Update performance metrics
-        updateFPS();
-        
-      } catch (error) {
-        console.error('Processing error:', error);
-        consecutiveErrorCount++;
-        
-        // Back off on errors
-        if (consecutiveErrorCount > 3) {
-          processingInterval = Math.min(processingInterval * 1.5, 500);
-          console.warn(`Backing off: new interval ${processingInterval}ms`);
-        }
-      } finally {
-        processingInProgress = false;
-      }
-    }
-    
-    // Animation loop using requestAnimationFrame for smoother performance
-    function animationLoop() {
-      processFrame();
-      requestAnimationFrame(animationLoop);
-    }
-    
-    // Start processing
-    function startProcessing() {
-      lastFpsTime = performance.now();
-      requestAnimationFrame(animationLoop);
-    }
-  </script>
+    </script>
 </body>
 </html>
-
