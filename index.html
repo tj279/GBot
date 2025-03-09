@@ -1,193 +1,169 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gesture Controlled Car</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
-        nav {
-            background: #2c3e50;
-            padding: 1rem;
-            position: fixed;
-            width: 100%;
-            top: 0;
-            z-index: 1000;
-        }
-
-        nav button {
-            background: #3498db;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            margin: 0 10px;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-
-        nav button:hover {
-            background: #2980b9;
-        }
-
-        .page {
-            display: none;
-            padding: 80px 20px 20px;
-            min-height: 100vh;
-        }
-
-        .active-page {
-            display: block;
-        }
-
-        #intro {
-            max-width: 800px;
-            margin: 0 auto;
-            text-align: center;
-        }
-
-        .gesture-list {
-            list-style: none;
-            margin: 2rem 0;
-        }
-
-        .gesture-list li {
-            margin: 1.5rem 0;
-            padding: 1rem;
-            background: #f8f9fa;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-
-        #demo {
-            text-align: center;
-        }
-
-        .video-container {
-            position: relative;
-            width: 100%;
-            max-width: 800px;
-            margin: 20px auto;
-        }
-
-        #webcam {
-            width: 100%;
-            height: 600px;
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            transform: scaleX(-1); /* Mirror video */
-        }
-
-        .status-overlay {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 5px;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gesture Controlled Car</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    nav {
+      background: #2c3e50;
+      padding: 1rem;
+      position: fixed;
+      width: 100%;
+      top: 0;
+      z-index: 1000;
+    }
+    nav button {
+      background: #3498db;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      margin: 0 10px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    nav button:hover {
+      background: #2980b9;
+    }
+    .page {
+      display: none;
+      padding: 80px 20px 20px;
+      min-height: 100vh;
+    }
+    .active-page {
+      display: block;
+    }
+    #intro {
+      max-width: 800px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    .gesture-list {
+      list-style: none;
+      margin: 2rem 0;
+    }
+    .gesture-list li {
+      margin: 1.5rem 0;
+      padding: 1rem;
+      background: #f8f9fa;
+      border-radius: 10px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    #demo {
+      text-align: center;
+    }
+    .video-container {
+      position: relative;
+      width: 100%;
+      max-width: 800px;
+      margin: 20px auto;
+    }
+    #annotated {
+      width: 100%;
+      height: auto;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    .status-overlay {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 5px;
+    }
+  </style>
 </head>
 <body>
-    <nav>
-        <button onclick="showPage('intro')">Instructions</button>
-        <button onclick="showPage('demo')">Live Demo</button>
-    </nav>
-
-    <!-- Intro Page -->
-    <div id="intro" class="page active-page">
-        <h1>Gesture Controlled Car 🚗</h1>
-        <p>Control the car using these hand gestures:</p>
-        
-        <ul class="gesture-list">
-            <li>👉 Point Left → Turn Left</li>
-            <li>👉 Point Right → Turn Right</li>
-            <li>👆 Point Up → Move Forward</li>
-            <li>👇 Point Down → Move Backward</li>
-            <li>✊ Closed Fist → Stop</li>
-            <li>✌️ Victory Sign → Zig-Zag Pattern</li>
-            <li>👌 OK Sign → Start/Stop Control</li>
-        </ul>
+  <nav>
+    <button onclick="showPage('intro')">Instructions</button>
+    <button onclick="showPage('demo')">Live Demo</button>
+  </nav>
+  <!-- Intro Page -->
+  <div id="intro" class="page active-page">
+    <h1>Gesture Controlled Car 🚗</h1>
+    <p>Control the car using these hand gestures:</p>
+    <ul class="gesture-list">
+      <li>👉 Point Left → Turn Left</li>
+      <li>👉 Point Right → Turn Right</li>
+      <li>👆 Point Up → Move Forward</li>
+      <li>👇 Point Down → Move Backward</li>
+      <li>✊ Closed Fist → Stop</li>
+      <li>✌️ Victory Sign → Zig-Zag Pattern</li>
+      <li>👌 OK Sign → Start/Stop Control</li>
+    </ul>
+  </div>
+  <!-- Demo Page -->
+  <div id="demo" class="page">
+    <h2>Live Gesture Control</h2>
+    <div class="video-container">
+      <video id="webcam" autoplay style="display:none;"></video>
+      <img id="annotated" src="" alt="Annotated Capture">
+      <div class="status-overlay">
+        <div id="status">Status: Loading...</div>
+        <div id="command">Command: None</div>
+      </div>
     </div>
-
-    <!-- Demo Page -->
-    <div id="demo" class="page">
-        <h2>Live Gesture Control</h2>
-        <div class="video-container">
-            <video id="webcam" autoplay></video>
-            <div class="status-overlay">
-                <div id="status">Status: Loading...</div>
-                <div id="command">Command: None</div>
-            </div>
-        </div>
-        <p>Allow camera access when prompted</p>
-    </div>
-
-    <script>
-        // Page navigation
-        function showPage(pageId) {
-            document.querySelectorAll('.page').forEach(page => {
-                page.classList.remove('active-page');
-            });
-            document.getElementById(pageId).classList.add('active-page');
+    <p>Allow camera access when prompted</p>
+  </div>
+  <script>
+    function showPage(pageId) {
+      document.querySelectorAll('.page').forEach(page => {
+        page.classList.remove('active-page');
+      });
+      document.getElementById(pageId).classList.add('active-page');
+    }
+    const video = document.getElementById('webcam');
+    const statusDiv = document.getElementById('status');
+    const commandDiv = document.getElementById('command');
+    const annotatedImg = document.getElementById('annotated');
+    // Use your exact ngrok HTTPS URL (no trailing spaces)
+    const API_URL = 'https://57e1-2401-4900-5986-e1de-c9b1-f953-2bc4-1cb8.ngrok-free.app';
+    
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        video.srcObject = stream;
+        statusDiv.textContent = "Status: Camera connected";
+        startProcessing();
+      })
+      .catch(err => {
+        statusDiv.textContent = "Error accessing camera: " + err;
+      });
+    
+    async function startProcessing() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 480;
+      const ctx = canvas.getContext('2d');
+      while (true) {
+        ctx.drawImage(video, 0, 0, 640, 480);
+        const frame = canvas.toDataURL('image/jpeg', 0.7);
+        try {
+          const response = await fetch(API_URL + '/process', {
+            method: 'POST',
+            body: JSON.stringify({ image: frame }),
+            headers: { 'Content-Type': 'application/json' }
+          });
+          const result = await response.json();
+          commandDiv.textContent = `Command: ${result.command || 'None'}`;
+          statusDiv.textContent = `Status: ${result.status}`;
+          if(result.annotated_image) {
+            annotatedImg.src = result.annotated_image;
+          }
+        } catch (error) {
+          console.error('Processing error:', error);
         }
-
-        // Webcam access and processing
-        const video = document.getElementById('webcam');
-        const statusDiv = document.getElementById('status');
-        const commandDiv = document.getElementById('command');
-        const API_URL = 'https://57e1-2401-4900-5986-e1de-c9b1-f953-2bc4-1cb8.ngrok-free.app'; // Replace with your ngrok URL
-
-        // 1. Access user's webcam
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
-                video.srcObject = stream;
-                statusDiv.textContent = "Status: Camera connected";
-                startProcessing();
-            })
-            .catch(err => {
-                statusDiv.textContent = "Error accessing camera: " + err;
-            });
-
-        // 2. Frame processing loop
-        async function startProcessing() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 640;
-            canvas.height = 480;
-            const ctx = canvas.getContext('2d');
-            
-            while (true) {
-                // Capture frame
-                ctx.drawImage(video, 0, 0, 640, 480);
-                const frame = canvas.toDataURL('image/jpeg', 0.7);
-                
-                try {
-                    // Send to processing endpoint
-                    const response = await fetch(API_URL + '/process', {
-                        method: 'POST',
-                        body: JSON.stringify({ image: frame }),
-                        headers: { 'Content-Type': 'application/json' }
-                    });
-                    
-                    // Update status
-                    const result = await response.json();
-                    commandDiv.textContent = `Command: ${result.command}`;
-                    statusDiv.textContent = `Status: ${result.status}`;
-                } catch (error) {
-                    console.error('Processing error:', error);
-                }
-                
-                // Throttle to 10fps
-                await new Promise(r => setTimeout(r, 100));
-            }
-        }
-    </script>
+        await new Promise(r => setTimeout(r, 100));
+      }
+    }
+  </script>
 </body>
 </html>
