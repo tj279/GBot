@@ -104,6 +104,23 @@
       border-radius: 5px;
       font-size: 0.8em;
     }
+    .performance-switches {
+      margin: 10px 0;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+    .performance-switches button {
+      background: #3498db;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .performance-switches button.active {
+      background: #27ae60;
+    }
   </style>
 </head>
 <body>
@@ -130,6 +147,10 @@
   <!-- Demo Page -->
   <div id="demo" class="page">
     <h2>Live Gesture Control</h2>
+    <div class="performance-switches">
+      <button id="performance-mode" onclick="togglePerformanceMode()">High Performance Mode</button>
+      <button id="low-res-mode" onclick="toggleResolutionMode()">Low Resolution Mode</button>
+    </div>
     <div class="video-container">
       <video id="webcam" autoplay></video>
       <img id="annotated" src="" alt="Processing your gestures...">
@@ -143,6 +164,37 @@
   </div>
   
   <script>
+    // Performance control variables
+    let highPerformanceMode = false;
+    let lowResolutionMode = false;
+    let processingInterval = 100; // ms between frames (10 fps default)
+    let frameQuality = 0.6; // Default JPEG quality
+    let videoWidth = 640;
+    let videoHeight = 480;
+    
+    // FPS tracking
+    let frameCount = 0;
+    let lastFpsTime = 0;
+    let fpsUpdateInterval = 1000; // Update FPS every second
+    
+    // Tracking variables
+    let processingInProgress = false;
+    let cameraStarted = false;
+    let lastProcessedTime = 0;
+    let consecutiveErrorCount = 0;
+    
+    // Page elements
+    const video = document.getElementById('webcam');
+    const statusDiv = document.getElementById('status');
+    const commandDiv = document.getElementById('command');
+    const annotatedImg = document.getElementById('annotated');
+    const fpsDisplay = document.getElementById('fps');
+    const performanceBtn = document.getElementById('performance-mode');
+    const resolutionBtn = document.getElementById('low-res-mode');
+    
+    // Update with your ngrok URL
+    const API_URL = 'https://57e1-2401-4900-5986-e1de-c9b1-f953-2bc4-1cb8.ngrok-free.app';
+    
     // Page navigation
     function showPage(pageId) {
       document.querySelectorAll('.page').forEach(page => {
@@ -150,38 +202,54 @@
       });
       document.getElementById(pageId).classList.add('active-page');
       
-      // Start camera when switching to demo page
       if (pageId === 'demo' && !cameraStarted) {
         startCamera();
       }
     }
     
-    // Setup variables
-    const video = document.getElementById('webcam');
-    const statusDiv = document.getElementById('status');
-    const commandDiv = document.getElementById('command');
-    const annotatedImg = document.getElementById('annotated');
-    const fpsDisplay = document.getElementById('fps');
+    // Performance modes
+    function togglePerformanceMode() {
+      highPerformanceMode = !highPerformanceMode;
+      performanceBtn.classList.toggle('active');
+      
+      if (highPerformanceMode) {
+        processingInterval = 50; // 20 fps target
+        frameQuality = 0.4; // Lower quality
+      } else {
+        processingInterval = 100; // 10 fps target
+        frameQuality = 0.6; // Higher quality
+      }
+    }
     
-    // Replace with your ngrok HTTPS URL (no trailing spaces)
-    const API_URL = 'https://266f-2401-4900-5c96-e1d5-3dee-3e6f-d9a0-f1a1.ngrok-free.app';
+    function toggleResolutionMode() {
+      lowResolutionMode = !lowResolutionMode;
+      resolutionBtn.classList.toggle('active');
+      
+      if (lowResolutionMode) {
+        videoWidth = 320;
+        videoHeight = 240;
+      } else {
+        videoWidth = 640;
+        videoHeight = 480;
+      }
+      
+      // Update canvas size
+      if (window.canvas) {
+        canvas.width = videoWidth;
+        canvas.height = videoHeight;
+      }
+    }
     
-    let cameraStarted = false;
-    let processingInProgress = false;
-    let frameCount = 0;
-    let lastFpsTime = 0;
-    let skipFrames = false;
-    
-    // Start camera access
+    // Camera initialization
     function startCamera() {
       if (cameraStarted) return;
       
-      navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          width: { ideal: 640 },
-          height: { ideal: 480 },
+      navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: videoWidth },
+          height: { ideal: videoHeight },
           frameRate: { ideal: 30 }
-        } 
+        }
       })
       .then(stream => {
         video.srcObject = stream;
@@ -191,94 +259,111 @@
       })
       .catch(err => {
         statusDiv.textContent = "Error accessing camera: " + err;
+        console.error("Camera error:", err);
       });
     }
     
-    // Calculate and display FPS
+    // FPS calculation
     function updateFPS() {
+      frameCount++;
+      
       const now = performance.now();
       const elapsed = now - lastFpsTime;
       
-      if (elapsed >= 1000) { // Update FPS every second
+      if (elapsed >= fpsUpdateInterval) {
         const fps = Math.round((frameCount / elapsed) * 1000);
         fpsDisplay.textContent = `FPS: ${fps}`;
         frameCount = 0;
         lastFpsTime = now;
         
-        // Auto-adjust frame skipping based on FPS
-        if (fps < 10) {
-          skipFrames = true;
-        } else {
-          skipFrames = false;
+        // Auto-adjust processing interval based on performance
+        if (highPerformanceMode && fps < 10) {
+          processingInterval = Math.min(processingInterval + 10, 200);
+        } else if (highPerformanceMode && fps > 20) {
+          processingInterval = Math.max(processingInterval - 5, 30);
         }
       }
     }
     
-    // Process frames with adaptive timing
-    async function startProcessing() {
-      const canvas = document.createElement('canvas');
-      canvas.width = 640;
-      canvas.height = 480;
-      const ctx = canvas.getContext('2d');
+    // Create canvas once
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = videoWidth;
+    canvas.height = videoHeight;
+    
+    // Process single frame with throttling
+    async function processFrame() {
+      if (!cameraStarted || processingInProgress) return;
       
+      const now = performance.now();
+      const timeSinceLastProcess = now - lastProcessedTime;
+      
+      // Throttle processing
+      if (timeSinceLastProcess < processingInterval) {
+        return;
+      }
+      
+      try {
+        processingInProgress = true;
+        lastProcessedTime = now;
+        
+        // Draw video frame to canvas & convert to data URL
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const frame = canvas.toDataURL('image/jpeg', frameQuality);
+        
+        // Send to backend
+        const response = await fetch(`${API_URL}/process`, {
+          method: 'POST',
+          body: JSON.stringify({ image: frame }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Server error: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        // Update UI with results
+        commandDiv.textContent = `Command: ${result.command || 'None'}`;
+        statusDiv.textContent = `Status: ${result.status}`;
+        
+        if (result.annotated_image) {
+          annotatedImg.src = result.annotated_image;
+        }
+        
+        // Reset error counter on success
+        consecutiveErrorCount = 0;
+        
+        // Update performance metrics
+        updateFPS();
+        
+      } catch (error) {
+        console.error('Processing error:', error);
+        consecutiveErrorCount++;
+        
+        // Back off on errors
+        if (consecutiveErrorCount > 3) {
+          processingInterval = Math.min(processingInterval * 1.5, 500);
+          console.warn(`Backing off: new interval ${processingInterval}ms`);
+        }
+      } finally {
+        processingInProgress = false;
+      }
+    }
+    
+    // Animation loop using requestAnimationFrame for smoother performance
+    function animationLoop() {
+      processFrame();
+      requestAnimationFrame(animationLoop);
+    }
+    
+    // Start processing
+    function startProcessing() {
       lastFpsTime = performance.now();
-      
-      const processNextFrame = async () => {
-        if (!cameraStarted) return;
-        
-        // Skip processing if another request is in progress
-        if (processingInProgress && skipFrames) {
-          requestAnimationFrame(processNextFrame);
-          return;
-        }
-        
-        try {
-          processingInProgress = true;
-          
-          // Capture and send frame
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const frame = canvas.toDataURL('image/jpeg', 0.7);
-          
-          const response = await fetch(`${API_URL}/process`, {
-            method: 'POST',
-            body: JSON.stringify({ image: frame }),
-            headers: { 'Content-Type': 'application/json' }
-          });
-          
-          if (!response.ok) {
-            throw new Error(`Server error: ${response.status}`);
-          }
-          
-          const result = await response.json();
-          
-          // Update UI with results
-          if (result.command) {
-            commandDiv.textContent = `Command: ${result.command}`;
-          } else {
-            commandDiv.textContent = `Command: None`;
-          }
-          
-          statusDiv.textContent = `Status: ${result.status}`;
-          
-          if (result.annotated_image) {
-            annotatedImg.src = result.annotated_image;
-          }
-          
-          // Update metrics
-          frameCount++;
-          updateFPS();
-          
-        } catch (error) {
-          console.error('Processing error:', error);
-        } finally {
-          processingInProgress = false;
-          requestAnimationFrame(processNextFrame);
-        }
-      };
-      
-      // Start the processing loop
-      processNextFrame();
+      requestAnimationFrame(animationLoop);
     }
   </script>
 </body>
 </html>
+
