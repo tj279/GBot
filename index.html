@@ -65,11 +65,16 @@
       max-width: 800px;
       margin: 20px auto;
     }
+    #webcam {
+      display: none;
+    }
     #annotated {
       width: 100%;
-      height: auto;
+      height: 600px;
       border-radius: 10px;
       box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+      background: #000;
+      object-fit: contain;
     }
     .status-overlay {
       position: absolute;
@@ -79,6 +84,25 @@
       color: white;
       padding: 10px 20px;
       border-radius: 5px;
+      z-index: 100;
+    }
+    #status {
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    #command {
+      font-weight: bold;
+      font-size: 1.2em;
+    }
+    .fps-display {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 0.8em;
     }
   </style>
 </head>
@@ -87,6 +111,7 @@
     <button onclick="showPage('intro')">Instructions</button>
     <button onclick="showPage('demo')">Live Demo</button>
   </nav>
+  
   <!-- Intro Page -->
   <div id="intro" class="page active-page">
     <h1>Gesture Controlled Car 🚗</h1>
@@ -101,68 +126,158 @@
       <li>👌 OK Sign → Start/Stop Control</li>
     </ul>
   </div>
+  
   <!-- Demo Page -->
   <div id="demo" class="page">
     <h2>Live Gesture Control</h2>
     <div class="video-container">
-      <video id="webcam" autoplay style="display:none;"></video>
-      <img id="annotated" src="" alt="Annotated Capture">
+      <video id="webcam" autoplay></video>
+      <img id="annotated" src="" alt="Processing your gestures...">
       <div class="status-overlay">
         <div id="status">Status: Loading...</div>
         <div id="command">Command: None</div>
       </div>
+      <div class="fps-display" id="fps">FPS: 0</div>
     </div>
     <p>Allow camera access when prompted</p>
   </div>
+  
   <script>
+    // Page navigation
     function showPage(pageId) {
       document.querySelectorAll('.page').forEach(page => {
         page.classList.remove('active-page');
       });
       document.getElementById(pageId).classList.add('active-page');
+      
+      // Start camera when switching to demo page
+      if (pageId === 'demo' && !cameraStarted) {
+        startCamera();
+      }
     }
+    
+    // Setup variables
     const video = document.getElementById('webcam');
     const statusDiv = document.getElementById('status');
     const commandDiv = document.getElementById('command');
     const annotatedImg = document.getElementById('annotated');
-    // Use your exact ngrok HTTPS URL (no trailing spaces)
+    const fpsDisplay = document.getElementById('fps');
+    
+    // Replace with your ngrok HTTPS URL (no trailing spaces)
     const API_URL = 'https://266f-2401-4900-5c96-e1d5-3dee-3e6f-d9a0-f1a1.ngrok-free.app';
     
-    navigator.mediaDevices.getUserMedia({ video: true })
+    let cameraStarted = false;
+    let processingInProgress = false;
+    let frameCount = 0;
+    let lastFpsTime = 0;
+    let skipFrames = false;
+    
+    // Start camera access
+    function startCamera() {
+      if (cameraStarted) return;
+      
+      navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 30 }
+        } 
+      })
       .then(stream => {
         video.srcObject = stream;
         statusDiv.textContent = "Status: Camera connected";
+        cameraStarted = true;
         startProcessing();
       })
       .catch(err => {
         statusDiv.textContent = "Error accessing camera: " + err;
       });
+    }
     
+    // Calculate and display FPS
+    function updateFPS() {
+      const now = performance.now();
+      const elapsed = now - lastFpsTime;
+      
+      if (elapsed >= 1000) { // Update FPS every second
+        const fps = Math.round((frameCount / elapsed) * 1000);
+        fpsDisplay.textContent = `FPS: ${fps}`;
+        frameCount = 0;
+        lastFpsTime = now;
+        
+        // Auto-adjust frame skipping based on FPS
+        if (fps < 10) {
+          skipFrames = true;
+        } else {
+          skipFrames = false;
+        }
+      }
+    }
+    
+    // Process frames with adaptive timing
     async function startProcessing() {
       const canvas = document.createElement('canvas');
       canvas.width = 640;
       canvas.height = 480;
       const ctx = canvas.getContext('2d');
-      while (true) {
-        ctx.drawImage(video, 0, 0, 640, 480);
-        const frame = canvas.toDataURL('image/jpeg', 0.7);
+      
+      lastFpsTime = performance.now();
+      
+      const processNextFrame = async () => {
+        if (!cameraStarted) return;
+        
+        // Skip processing if another request is in progress
+        if (processingInProgress && skipFrames) {
+          requestAnimationFrame(processNextFrame);
+          return;
+        }
+        
         try {
-          const response = await fetch(API_URL + '/process', {
+          processingInProgress = true;
+          
+          // Capture and send frame
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const frame = canvas.toDataURL('image/jpeg', 0.7);
+          
+          const response = await fetch(`${API_URL}/process`, {
             method: 'POST',
             body: JSON.stringify({ image: frame }),
             headers: { 'Content-Type': 'application/json' }
           });
+          
+          if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+          }
+          
           const result = await response.json();
-          commandDiv.textContent = `Command: ${result.command || 'None'}`;
+          
+          // Update UI with results
+          if (result.command) {
+            commandDiv.textContent = `Command: ${result.command}`;
+          } else {
+            commandDiv.textContent = `Command: None`;
+          }
+          
           statusDiv.textContent = `Status: ${result.status}`;
-          if(result.annotated_image) {
+          
+          if (result.annotated_image) {
             annotatedImg.src = result.annotated_image;
           }
+          
+          // Update metrics
+          frameCount++;
+          updateFPS();
+          
         } catch (error) {
           console.error('Processing error:', error);
+        } finally {
+          processingInProgress = false;
+          requestAnimationFrame(processNextFrame);
         }
-        await new Promise(r => setTimeout(r, 100));
-      }
+      };
+      
+      // Start the processing loop
+      processNextFrame();
     }
   </script>
 </body>
