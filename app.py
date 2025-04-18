@@ -1,0 +1,225 @@
+import cv2
+import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
+import numpy as np
+import time
+from flask import Flask, jsonify, request
+import threading
+import json
+from flask_compress import Compress
+from flask_cors import CORS
+import base64
+import logging
+
+# Configure logging for debugging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+# Better CORS configuration
+CORS(app, 
+     resources={r"/*": {"origins": "*"}}, 
+     supports_credentials=True,
+     methods=["GET", "POST", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization"])
+Compress(app)
+
+# MediaPipe initialization
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
+
+class GestureState:
+    def __init__(self):
+        self.recording = False
+        self.status = "STOPPED"
+        self.recording_start_time = 0
+        self.last_command_time = 0
+        self.last_displayed_command = ""
+        self.last_display_time = 0
+        self.last_ok_time = 0
+        self.frame_counter = 0
+        self.last_processed = time.time()
+
+state = GestureState()
+
+# Optimized parameters
+NORM_THRESHOLD = 0.08
+COMMAND_COOLDOWN = 1.0
+RECORDING_START_DELAY = 1.0
+OK_COOLDOWN = 1.0
+FRAME_SKIP = 2
+PROCESSING_WIDTH = 640
+PROCESSING_HEIGHT = 480
+TARGET_FPS = 15
+JPEG_QUALITY = 70
+
+# Arduino command mappings - these match what will be sent to HC-05
+ARDUINO_COMMANDS = {
+    "FORWARD": "F",
+    "BACKWARD": "B",
+    "LEFT": "L",
+    "RIGHT": "R",
+    "STOP": "S",
+    "ZIG-ZAG": "Z",
+    "SPIN": "P"
+}
+
+# Load gesture recognizer
+model_path = 'gesture_recognizer.task'
+base_options = python.BaseOptions(model_asset_path=model_path)
+options = vision.GestureRecognizerOptions(
+    base_options=base_options,
+    running_mode=mp.tasks.vision.RunningMode.IMAGE,
+    num_hands=1  # Constrain to one hand
+)
+recognizer = vision.GestureRecognizer.create_from_options(options)
+
+def is_ok_gesture(landmarks):
+    if not landmarks:
+        return False
+    thumb_tip = landmarks[mp_hands.HandLandmark.THUMB_TIP]
+    index_tip = landmarks[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+    mcp_ref = landmarks[mp_hands.HandLandmark.MIDDLE_FINGER_MCP].y
+    distance = np.hypot(thumb_tip.x - index_tip.x, thumb_tip.y - index_tip.y)
+    fingers_out = all(
+        lm.y < mcp_ref for lm in [
+            landmarks[mp_hands.HandLandmark.MIDDLE_FINGER_TIP],
+            landmarks[mp_hands.HandLandmark.RING_FINGER_TIP],
+            landmarks[mp_hands.HandLandmark.PINKY_TIP]
+        ]
+    )
+    return distance < 0.05 and fingers_out
+
+def process_frame(frame):
+    current_time = time.time()
+    if frame is None or frame.size == 0:
+        logger.error("Received empty frame")
+        return
+    
+    # Frame skipping logic
+    state.frame_counter += 1
+    if state.frame_counter % FRAME_SKIP != 0:
+        return
+    if current_time - state.last_processed < 1/TARGET_FPS:
+        return
+    state.last_processed = current_time
+
+    # Original processing pipeline using gesture recognizer only
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+    gesture_result = recognizer.recognize(mp_image)
+
+    time_since_last = current_time - state.last_command_time
+    time_since_start = current_time - state.recording_start_time
+    time_since_ok = current_time - state.last_ok_time
+
+    # Gesture toggle logic: uses recognizer's hand landmarks
+    if gesture_result.hand_landmarks and time_since_ok > OK_COOLDOWN:
+        for hand_landmarks in gesture_result.hand_landmarks:
+            if is_ok_gesture(hand_landmarks):
+                if not state.recording or (state.recording and time_since_start > 1.0):
+                    state.recording = not state.recording
+                    state.status = "RECORDING" if state.recording else "STOPPED"
+                    state.last_ok_time = current_time
+                    if state.recording:
+                        state.recording_start_time = current_time
+                        state.last_command_time = current_time
+                    state.last_displayed_command = ""
+                    state.last_display_time = 0
+
+    # Command processing logic
+    if state.recording and time_since_start > RECORDING_START_DELAY:
+        if time_since_last > COMMAND_COOLDOWN:
+            if current_time - state.last_display_time > COMMAND_COOLDOWN:
+                state.last_displayed_command = ""
+            final_command = None
+            if gesture_result.gestures:
+                current_gesture = gesture_result.gestures[0][0].category_name
+                if current_gesture == "Closed_Fist":
+                    final_command = "STOP"
+                elif current_gesture == "Victory":
+                    final_command = "ZIG-ZAG"
+                elif current_gesture == "Open_Palm":
+                    final_command = "SPIN"
+            if not final_command and gesture_result.hand_landmarks:
+                for hand_landmarks in gesture_result.hand_landmarks:
+                    palm = hand_landmarks[mp_hands.HandLandmark.MIDDLE_FINGER_MCP]
+                    index = hand_landmarks[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+                    dx = index.x - palm.x
+                    dy = index.y - palm.y
+                    dist = np.hypot(dx, dy)
+                    if dist > NORM_THRESHOLD:
+                        angle = np.arctan2(dy, dx)
+                        if -np.pi/4 < angle < np.pi/4:
+                            final_command = "RIGHT"
+                        elif np.pi/4 < angle < 3*np.pi/4:
+                            final_command = "BACKWARD"
+                        elif -3*np.pi/4 < angle < -np.pi/4:
+                            final_command = "FORWARD"
+                        else:
+                            final_command = "LEFT"
+            if final_command:
+                state.last_displayed_command = final_command
+                state.last_command_time = current_time
+                state.last_display_time = current_time
+
+# Add proper CORS headers to every response
+@app.after_request
+def add_cors_headers(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')
+    response.headers.add('Cache-Control', 'no-cache, no-store, must-revalidate')
+    response.headers.add('X-Content-Type-Options', 'nosniff')
+    return response
+
+# Special route for OPTIONS requests
+@app.route('/process', methods=['OPTIONS'])
+def handle_options():
+    return '', 204  # No content response for OPTIONS
+
+@app.route('/process', methods=['POST'])
+def handle_frame():
+    try:
+        logger.info("Received frame request")
+        if not request.is_json:
+            logger.error("Request is not JSON")
+            return jsonify({'error': 'Request must be JSON'}), 400
+            
+        if 'image' not in request.json:
+            return jsonify({'error': 'Missing image data'}), 400
+            
+        frame_data = request.json['image'].split(',')[1]
+        logger.debug(f"Frame data length: {len(frame_data)}")
+        frame_bytes = base64.b64decode(frame_data)
+        frame = cv2.imdecode(np.frombuffer(frame_bytes, np.uint8), cv2.IMREAD_COLOR)
+        frame = cv2.flip(frame, 1)
+        process_frame(frame)
+        
+        # Get command to send
+        arduino_command = ""
+        if state.last_displayed_command and (time.time() - state.last_display_time) < COMMAND_COOLDOWN:
+            arduino_command = ARDUINO_COMMANDS.get(state.last_displayed_command, "")
+        
+        return jsonify({
+            'status': state.status,
+            'command': state.last_displayed_command if (time.time() - state.last_display_time) < COMMAND_COOLDOWN else ""
+        })
+    except Exception as e:
+        logger.error(f"Processing error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/')
+def home():
+    return jsonify({
+        "message": "Gesture Control Car API",
+        "endpoints": {
+            "/process": "Send frames for gesture processing",
+        }
+    })
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, threaded=True, debug=True)
