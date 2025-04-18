@@ -477,11 +477,11 @@
                 
                 try {
                     // Send to processing endpoint
-                    const response = await fetch(API_URL + '/process', {
+                    const response = await fetch (`${API_URL}` + '/process', {
                         method: 'POST',
                         body: JSON.stringify({ image: frame }),
                         headers: { 'Content-Type': 'application/json' }
-                    });
+                    }); 
                     
                     // Update status and send command via Bluetooth
                     const result = await response.json();
