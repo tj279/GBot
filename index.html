@@ -162,6 +162,30 @@
             margin: 10px 0;
             text-align: left;
         }
+        
+        .api-url-container {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f1f1f1;
+            border-radius: 5px;
+        }
+        
+        .api-url-container input {
+            width: 80%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .api-url-container button {
+            padding: 8px 12px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            margin-left: 5px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -205,6 +229,13 @@
             
             <div id="device-list"></div>
             <div id="device-info"></div>
+            
+            <div class="api-url-container">
+                <p>Enter your gesture detection API URL:</p>
+                <input type="text" id="api-url" placeholder="https://your-ngrok-url.ngrok-free.app" 
+                       value="https://c213-103-118-50-124.ngrok-free.app">
+                <button id="save-api-btn">Save</button>
+            </div>
         </div>
     </div>
 
@@ -228,6 +259,27 @@
         let bluetoothCharacteristic = null;
         let lastSentCommand = "";
         let isConnected = false;
+        let API_URL = 'https://c213-103-118-50-124.ngrok-free.app'; // Default API URL
+        let processingActive = false;
+        
+        // Initialize API URL from localStorage if available
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedUrl = localStorage.getItem('gestureApiUrl');
+            if (savedUrl) {
+                API_URL = savedUrl;
+                document.getElementById('api-url').value = savedUrl;
+            }
+            
+            // Save API URL button handler
+            document.getElementById('save-api-btn').addEventListener('click', function() {
+                const newUrl = document.getElementById('api-url').value.trim();
+                if (newUrl) {
+                    API_URL = newUrl;
+                    localStorage.setItem('gestureApiUrl', newUrl);
+                    alert('API URL saved!');
+                }
+            });
+        });
         
         // Page navigation
         function showPage(pageId) {
@@ -243,8 +295,12 @@
                 return;
             }
             
+            // Handle entering/exiting demo page
             if (pageId === 'demo') {
                 initializeWebcam();
+            } else {
+                // Stop processing when leaving demo page
+                processingActive = false;
             }
         }
         
@@ -438,6 +494,11 @@
                     console.error('Send command error:', error);
                     document.getElementById('bt-command-status').textContent = `BT: Error sending command`;
                     showError(`Error sending command: ${error.message}`);
+                    
+                    // Check if disconnected
+                    if (error.message.includes('disconnected') || !bluetoothDevice.gatt.connected) {
+                        onDisconnected();
+                    }
                 }
             }
         }
@@ -446,21 +507,31 @@
         const video = document.getElementById('webcam');
         const statusDiv = document.getElementById('status');
         const commandDiv = document.getElementById('command');
-        const API_URL = 'https://c213-103-118-50-124.ngrok-free.app'; // Replace with your ngrok URL
 
         // Initialize webcam when needed
-        function initializeWebcam() {
-            // 1. Access user's webcam
-            navigator.mediaDevices.getUserMedia({ video: true })
-                .then(stream => {
-                    video.srcObject = stream;
-                    statusDiv.textContent = "Status: Camera connected";
-                    startProcessing();
-                })
-                .catch(err => {
-                    statusDiv.textContent = "Error accessing camera: " + err;
-                    showError(`Camera access error: ${err.message}`);
+        async function initializeWebcam() {
+            try {
+                // 1. Access user's webcam
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    } 
                 });
+                
+                video.srcObject = stream;
+                statusDiv.textContent = "Status: Camera connected";
+                
+                // Make sure video is playing before starting processing
+                video.onloadedmetadata = () => {
+                    video.play();
+                    processingActive = true;
+                    startProcessing();
+                };
+            } catch (err) {
+                statusDiv.textContent = "Error accessing camera: " + err;
+                showError(`Camera access error: ${err.message}`);
+            }
         }
 
         // 2. Frame processing loop
@@ -470,41 +541,64 @@
             canvas.height = 480;
             const ctx = canvas.getContext('2d');
             
-            while (document.getElementById('demo').classList.contains('active-page')) {
-                // Capture frame
-                ctx.drawImage(video, 0, 0, 640, 480);
-                const frame = canvas.toDataURL('image/jpeg', 0.7);
-                
+            // Reset flag
+            processingActive = true;
+            
+            while (processingActive && document.getElementById('demo').classList.contains('active-page')) {
                 try {
-                    // Send to processing endpoint
-                    const response = await fetch (`${API_URL}` + '/process', {
-                        method: 'POST',
-                        body: JSON.stringify({ image: frame }),
-                        headers: { 'Content-Type': 'application/json' }
-                    }); 
-                    
-                    // Update status and send command via Bluetooth
-                    const result = await response.json();
-                    commandDiv.textContent = `Command: ${result.command}`;
-                    statusDiv.textContent = `Status: ${result.status}`;
-                    
-                    // Map commands to single characters for Arduino
-                    const commandMap = {
-                        "FORWARD": "F",
-                        "BACKWARD": "B",
-                        "LEFT": "L",
-                        "RIGHT": "R",
-                        "STOP": "S",
-                        "ZIG-ZAG": "Z",
-                        "SPIN": "P"
-                    };
-                    
-                    // Send command to HC-05 if connected
-                    if (result.command && commandMap[result.command]) {
-                        sendCommand(commandMap[result.command]);
+                    // Ensure video is playing
+                    if (video.paused || video.ended || !video.videoWidth) {
+                        await new Promise(r => setTimeout(r, 100));
+                        continue;
                     }
-                } catch (error) {
-                    console.error('Processing error:', error);
+                    
+                    // Capture frame
+                    ctx.drawImage(video, 0, 0, 640, 480);
+                    const frame = canvas.toDataURL('image/jpeg', 0.7);
+                    
+                    try {
+                        // Send to processing endpoint - FIXED the template literal concatenation
+                        const response = await fetch(`${API_URL}/process`, {
+                            method: 'POST',
+                            body: JSON.stringify({ image: frame }),
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        
+                        if (!response.ok) {
+                            throw new Error(`API error: ${response.status}`);
+                        }
+                        
+                        // Update status and send command via Bluetooth
+                        const result = await response.json();
+                        commandDiv.textContent = `Command: ${result.command || 'None'}`;
+                        statusDiv.textContent = `Status: ${result.status || 'Processing'}`;
+                        
+                        // Map commands to single characters for Arduino
+                        const commandMap = {
+                            "FORWARD": "F",
+                            "BACKWARD": "B",
+                            "LEFT": "L",
+                            "RIGHT": "R",
+                            "STOP": "S",
+                            "ZIG-ZAG": "Z",
+                            "SPIN": "P"
+                        };
+                        
+                        // Send command to HC-05 if connected
+                        if (result.command && commandMap[result.command]) {
+                            sendCommand(commandMap[result.command]);
+                        }
+                    } catch (error) {
+                        console.error('Processing error:', error);
+                        statusDiv.textContent = `Status: API error - ${error.message}`;
+                        // Don't show error dialog for every frame error
+                        // Only show on first error
+                        if (statusDiv.textContent.indexOf('API error') === -1) {
+                            showError(`API error: ${error.message}. Check your API URL in the Connect tab.`);
+                        }
+                    }
+                } catch (e) {
+                    console.error("Frame processing error:", e);
                 }
                 
                 // Throttle to 10fps
