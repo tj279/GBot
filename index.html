@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -47,7 +46,7 @@
             display: block;
         }
 
-        #intro {
+        #intro, #connect {
             max-width: 800px;
             margin: 0 auto;
             text-align: center;
@@ -94,12 +93,82 @@
             padding: 10px 20px;
             border-radius: 5px;
         }
+        
+        /* Bluetooth connection styles */
+        .bt-connect-container {
+            margin: 30px auto;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            max-width: 500px;
+        }
+        
+        .bt-status {
+            margin: 15px 0;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        
+        .connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .connecting {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .bt-button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        
+        .bt-button:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+        
+        .bt-button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        #device-info {
+            margin-top: 20px;
+            font-size: 14px;
+        }
+
+        .error-msg {
+            color: #721c24;
+            background-color: #f8d7da;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px 0;
+            text-align: left;
+        }
     </style>
 </head>
 <body>
     <nav>
         <button onclick="showPage('intro')">Instructions</button>
-        <button onclick="showPage('demo')">Live Demo</button>
+        <button onclick="showPage('connect')">Connect</button>
+        <button onclick="showPage('demo')" id="demo-btn" disabled>Live Demo</button>
     </nav>
 
     <!-- Intro Page -->
@@ -116,6 +185,27 @@
             <li>✌️ Victory Sign → Zig-Zag Pattern</li>
             <li>👌 OK Sign → Start/Stop Control</li>
         </ul>
+
+        <p>To get started, connect your car's Bluetooth module first.</p>
+        <button class="bt-button" onclick="showPage('connect')">Connect to Car</button>
+    </div>
+
+    <!-- Connect Page -->
+    <div id="connect" class="page">
+        <h1>Connect to Your Car</h1>
+        <p>Pair with your car's HC-05 Bluetooth module to start controlling it with gestures.</p>
+        
+        <div class="bt-connect-container">
+            <div id="bt-status" class="bt-status disconnected">Status: Not Connected</div>
+            <div id="error-message" class="error-msg" style="display: none;"></div>
+            
+            <button id="scan-btn" class="bt-button">Scan for Devices</button>
+            <button id="connect-btn" class="bt-button" disabled>Connect</button>
+            <button id="disconnect-btn" class="bt-button" disabled>Disconnect</button>
+            
+            <div id="device-list"></div>
+            <div id="device-info"></div>
+        </div>
     </div>
 
     <!-- Demo Page -->
@@ -126,36 +216,252 @@
             <div class="status-overlay">
                 <div id="status">Status: Loading...</div>
                 <div id="command">Command: None</div>
+                <div id="bt-command-status">BT: Not Connected</div>
             </div>
         </div>
         <p>Allow camera access when prompted</p>
     </div>
 
     <script>
+        // Global variables
+        let bluetoothDevice = null;
+        let bluetoothCharacteristic = null;
+        let lastSentCommand = "";
+        let isConnected = false;
+        
         // Page navigation
         function showPage(pageId) {
             document.querySelectorAll('.page').forEach(page => {
                 page.classList.remove('active-page');
             });
             document.getElementById(pageId).classList.add('active-page');
+            
+            // If showing demo page, make sure we're connected first
+            if (pageId === 'demo' && !isConnected) {
+                alert('Please connect to your car first!');
+                showPage('connect');
+                return;
+            }
+            
+            if (pageId === 'demo') {
+                initializeWebcam();
+            }
+        }
+        
+        // Handle errors and display them
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            
+            // Auto-hide after 10 seconds
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 10000);
+        }
+        
+        // Bluetooth functionality
+        document.getElementById('scan-btn').addEventListener('click', scanForDevices);
+        document.getElementById('connect-btn').addEventListener('click', connectToDevice);
+        document.getElementById('disconnect-btn').addEventListener('click', disconnectDevice);
+        
+        // Check if Bluetooth is supported
+        if (!navigator.bluetooth) {
+            updateBluetoothStatus('Bluetooth API not supported in this browser. Try Chrome on Android or desktop.');
+            document.getElementById('scan-btn').disabled = true;
+            showError('Web Bluetooth is not supported in this browser. Please use Chrome on Android or desktop.');
+        }
+        
+        async function scanForDevices() {
+            updateBluetoothStatus('Scanning for devices...', 'connecting');
+            const deviceList = document.getElementById('device-list');
+            deviceList.innerHTML = '';
+            
+            try {
+                // Use proper UUIDs for HC-05 compatibility
+                // HC-05 typically uses the SPP UUID which is a standardized service
+                const device = await navigator.bluetooth.requestDevice({
+                    // Note: Due to Web Bluetooth security, we can't use the SPP UUID directly
+                    // So we'll scan for any Bluetooth devices with a name prefix or advertised service
+                    filters: [
+                        { namePrefix: 'HC-05' },
+                        { namePrefix: 'HC05' }
+                    ],
+                    // We need to add the services we'll use
+                    optionalServices: [
+                        '0000ffe0-0000-1000-8000-00805f9b34fb',  // Common HC-05 service UUID
+                        '00001101-0000-1000-8000-00805f9b34fb'   // SPP UUID in proper format
+                    ]
+                });
+                
+                bluetoothDevice = device;
+                
+                // Create device listing
+                const deviceElement = document.createElement('div');
+                deviceElement.innerHTML = `
+                    <p><strong>Found:</strong> ${device.name || 'Unknown Device'}</p>
+                    <p><strong>ID:</strong> ${device.id}</p>
+                `;
+                deviceList.appendChild(deviceElement);
+                
+                document.getElementById('connect-btn').disabled = false;
+                updateBluetoothStatus('Device found. Click "Connect" to pair.', 'disconnected');
+                
+                // Listen for disconnection
+                device.addEventListener('gattserverdisconnected', onDisconnected);
+                
+            } catch (error) {
+                console.error('Bluetooth scan error:', error);
+                updateBluetoothStatus(`Error scanning for devices`, 'disconnected');
+                showError(`Scan error: ${error.message}`);
+            }
+        }
+        
+        async function connectToDevice() {
+            if (!bluetoothDevice) return;
+            
+            try {
+                updateBluetoothStatus('Connecting...', 'connecting');
+                
+                const server = await bluetoothDevice.gatt.connect();
+                
+                // Try HC-05 service UUID first (most common for HC-05 modules)
+                let service;
+                try {
+                    service = await server.getPrimaryService('0000ffe0-0000-1000-8000-00805f9b34fb');
+                    console.log("Connected to FFE0 service");
+                } catch (e) {
+                    console.error("Failed to connect to FFE0 service, trying SPP service", e);
+                    
+                    try {
+                        // Try SPP service as fallback
+                        service = await server.getPrimaryService('00001101-0000-1000-8000-00805f9b34fb');
+                        console.log("Connected to SPP service");
+                    } catch (e2) {
+                        console.error("Failed to connect to SPP service", e2);
+                        
+                        // Last resort: get all services and try to use the first one
+                        const services = await server.getPrimaryServices();
+                        if (services.length > 0) {
+                            service = services[0];
+                            console.log("Found service:", service.uuid);
+                        } else {
+                            throw new Error("No compatible services found on device");
+                        }
+                    }
+                }
+                
+                // Try to get the characteristic for writing
+                try {
+                    // Most HC-05 modules use FFE1 characteristic
+                    bluetoothCharacteristic = await service.getCharacteristic('0000ffe1-0000-1000-8000-00805f9b34fb');
+                    console.log("Found FFE1 characteristic");
+                } catch (e) {
+                    console.error("Failed to get FFE1 characteristic", e);
+                    
+                    // Get all characteristics and use first writable one
+                    const characteristics = await service.getCharacteristics();
+                    console.log("Available characteristics:", characteristics.map(c => c.uuid));
+                    
+                    bluetoothCharacteristic = characteristics.find(char => 
+                        char.properties.writeWithoutResponse || char.properties.write);
+                    
+                    if (!bluetoothCharacteristic) {
+                        throw new Error("No writable characteristic found");
+                    }
+                    
+                    console.log("Using characteristic:", bluetoothCharacteristic.uuid);
+                }
+                
+                updateBluetoothStatus('Connected successfully!', 'connected');
+                document.getElementById('device-info').textContent = `Connected to: ${bluetoothDevice.name || 'Unknown Device'}`;
+                document.getElementById('connect-btn').disabled = true;
+                document.getElementById('disconnect-btn').disabled = false;
+                document.getElementById('demo-btn').disabled = false;
+                document.getElementById('bt-command-status').textContent = "BT: Connected";
+                isConnected = true;
+                
+                // Test the connection with a ping command
+                sendCommand("S");
+                
+            } catch (error) {
+                console.error('Connection error:', error);
+                updateBluetoothStatus(`Connection error`, 'disconnected');
+                showError(`Connection error: ${error.message}`);
+            }
+        }
+        
+        function disconnectDevice() {
+            if (bluetoothDevice && bluetoothDevice.gatt.connected) {
+                bluetoothDevice.gatt.disconnect();
+            } else {
+                onDisconnected();
+            }
+        }
+        
+        function onDisconnected() {
+            updateBluetoothStatus('Disconnected', 'disconnected');
+            document.getElementById('connect-btn').disabled = bluetoothDevice ? false : true;
+            document.getElementById('disconnect-btn').disabled = true;
+            document.getElementById('demo-btn').disabled = true;
+            document.getElementById('device-info').textContent = '';
+            document.getElementById('bt-command-status').textContent = "BT: Not Connected";
+            isConnected = false;
+            bluetoothCharacteristic = null;
+        }
+        
+        function updateBluetoothStatus(message, status) {
+            const statusElement = document.getElementById('bt-status');
+            statusElement.textContent = `Status: ${message}`;
+            statusElement.className = `bt-status ${status || 'disconnected'}`;
+        }
+        
+        async function sendCommand(command) {
+            if (!bluetoothCharacteristic || !isConnected) return;
+            
+            // Only send if command has changed
+            if (command !== lastSentCommand && command) {
+                try {
+                    const encoder = new TextEncoder();
+                    const data = encoder.encode(command);
+                    
+                    if (bluetoothCharacteristic.properties.writeWithoutResponse) {
+                        await bluetoothCharacteristic.writeValueWithoutResponse(data);
+                    } else {
+                        await bluetoothCharacteristic.writeValue(data);
+                    }
+                    
+                    document.getElementById('bt-command-status').textContent = `BT: Sent "${command}"`;
+                    lastSentCommand = command;
+                    console.log("Command sent:", command);
+                } catch (error) {
+                    console.error('Send command error:', error);
+                    document.getElementById('bt-command-status').textContent = `BT: Error sending command`;
+                    showError(`Error sending command: ${error.message}`);
+                }
+            }
         }
 
         // Webcam access and processing
         const video = document.getElementById('webcam');
         const statusDiv = document.getElementById('status');
         const commandDiv = document.getElementById('command');
-        const API_URL = 'https://2deb-117-220-161-119.ngrok-free.app'; // Replace with your ngrok URL
+        const API_URL = 'https://89f9-2401-4900-5c76-f476-f143-dee7-b0b4-9e32.ngrok-free.app'; // Replace with your ngrok URL
 
-        // 1. Access user's webcam
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
-                video.srcObject = stream;
-                statusDiv.textContent = "Status: Camera connected";
-                startProcessing();
-            })
-            .catch(err => {
-                statusDiv.textContent = "Error accessing camera: " + err;
-            });
+        // Initialize webcam when needed
+        function initializeWebcam() {
+            // 1. Access user's webcam
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => {
+                    video.srcObject = stream;
+                    statusDiv.textContent = "Status: Camera connected";
+                    startProcessing();
+                })
+                .catch(err => {
+                    statusDiv.textContent = "Error accessing camera: " + err;
+                    showError(`Camera access error: ${err.message}`);
+                });
+        }
 
         // 2. Frame processing loop
         async function startProcessing() {
@@ -164,7 +470,7 @@
             canvas.height = 480;
             const ctx = canvas.getContext('2d');
             
-            while (true) {
+            while (document.getElementById('demo').classList.contains('active-page')) {
                 // Capture frame
                 ctx.drawImage(video, 0, 0, 640, 480);
                 const frame = canvas.toDataURL('image/jpeg', 0.7);
@@ -177,10 +483,26 @@
                         headers: { 'Content-Type': 'application/json' }
                     });
                     
-                    // Update status
+                    // Update status and send command via Bluetooth
                     const result = await response.json();
                     commandDiv.textContent = `Command: ${result.command}`;
                     statusDiv.textContent = `Status: ${result.status}`;
+                    
+                    // Map commands to single characters for Arduino
+                    const commandMap = {
+                        "FORWARD": "F",
+                        "BACKWARD": "B",
+                        "LEFT": "L",
+                        "RIGHT": "R",
+                        "STOP": "S",
+                        "ZIG-ZAG": "Z",
+                        "SPIN": "P"
+                    };
+                    
+                    // Send command to HC-05 if connected
+                    if (result.command && commandMap[result.command]) {
+                        sendCommand(commandMap[result.command]);
+                    }
                 } catch (error) {
                     console.error('Processing error:', error);
                 }
