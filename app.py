@@ -63,7 +63,8 @@ ARDUINO_COMMANDS = {
     "RIGHT": "R",
     "STOP": "S",
     "ZIG-ZAG": "Z",
-    "SPIN": "P"
+    "SPIN": "P",
+    "SPIRAL": "V"  # Added new SPIRAL command with 'X' as the Arduino command
 }
 
 # Load gesture recognizer
@@ -91,6 +92,37 @@ def is_ok_gesture(landmarks):
         ]
     )
     return distance < 0.05 and fingers_out
+
+def is_thumbs_up(landmarks):
+    if not landmarks:
+        return False
+    
+    # Thumb should be pointing up
+    thumb_tip = landmarks[mp_hands.HandLandmark.THUMB_TIP]
+    thumb_ip = landmarks[mp_hands.HandLandmark.THUMB_IP]
+    
+    # All other fingers should be curled (MCP higher than TIP)
+    index_tip = landmarks[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+    index_mcp = landmarks[mp_hands.HandLandmark.INDEX_FINGER_MCP]
+    middle_tip = landmarks[mp_hands.HandLandmark.MIDDLE_FINGER_TIP]
+    middle_mcp = landmarks[mp_hands.HandLandmark.MIDDLE_FINGER_MCP]
+    ring_tip = landmarks[mp_hands.HandLandmark.RING_FINGER_TIP]
+    ring_mcp = landmarks[mp_hands.HandLandmark.RING_FINGER_MCP]
+    pinky_tip = landmarks[mp_hands.HandLandmark.PINKY_TIP]
+    pinky_mcp = landmarks[mp_hands.HandLandmark.PINKY_MCP]
+    
+    # Thumb pointing up means tip is above IP
+    thumb_up = thumb_tip.y < thumb_ip.y
+    
+    # Check if other fingers are curled (tip is below MCP)
+    fingers_curled = (
+        index_tip.y > index_mcp.y and
+        middle_tip.y > middle_mcp.y and
+        ring_tip.y > ring_mcp.y and
+        pinky_tip.y > pinky_mcp.y
+    )
+    
+    return thumb_up and fingers_curled
 
 def process_frame(frame):
     current_time = time.time()
@@ -145,6 +177,11 @@ def process_frame(frame):
                     final_command = "SPIN"
             if not final_command and gesture_result.hand_landmarks:
                 for hand_landmarks in gesture_result.hand_landmarks:
+                    # Check for thumbs up gesture
+                    if is_thumbs_up(hand_landmarks):
+                        final_command = "SPIRAL"
+                        break
+                        
                     palm = hand_landmarks[mp_hands.HandLandmark.MIDDLE_FINGER_MCP]
                     index = hand_landmarks[mp_hands.HandLandmark.INDEX_FINGER_TIP]
                     dx = index.x - palm.x
